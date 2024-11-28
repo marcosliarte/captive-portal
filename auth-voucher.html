@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autenticação do Voucher</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        label {
+            font-size: 16px;
+        }
+        input {
+            padding: 8px;
+            font-size: 14px;
+            margin: 10px 0;
+            width: 100%;
+            max-width: 300px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .message {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Autenticação de Voucher</h1>
+    <form id="authForm">
+        <label for="voucherCode">Código do Voucher:</label>
+        <input type="text" id="voucherCode" name="voucherCode" required>
+        <button type="submit">Autenticar</button>
+    </form>
+    <div class="message" id="message"></div>
+
+    <script>
+        document.getElementById('authForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const voucherCode = document.getElementById('voucherCode').value;
+            const messageDiv = document.getElementById('message');
+
+            try {
+                const response = await fetch('/auth-voucher', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ voucher_code: voucherCode }),
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    messageDiv.textContent = result.message;
+                    messageDiv.style.color = 'green';
+                } else {
+                    messageDiv.textContent = result.error;
+                    messageDiv.style.color = 'red';
+                }
+            } catch (error) {
+                messageDiv.textContent = 'Erro na comunicação com o servidor.';
+                messageDiv.style.color = 'red';
+                console.error(error);
+            }
+        });
+    </script>
+</body>
+</html>

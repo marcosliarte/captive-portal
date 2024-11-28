@@ -30,9 +30,10 @@ const generateVoucherCode = () => {
   return `${prefix}${randomString}`;
 };
 
-// Rota para gerar voucher
+// Middleware para processar JSON no corpo da requisição
 app.use(express.json());
 
+// Rota para gerar voucher
 app.post('/generate-voucher', (req, res) => {
   const { validity_duration } = req.body;
 
@@ -147,7 +148,51 @@ app.delete('/vouchers/:id', (req, res) => {
   });
 });
 
-// Rota para servir o arquivo HTML
+// Rota para autenticar o voucher e registrar o IP do usuário
+app.post('/auth-voucher', (req, res) => {
+  const { voucher_code } = req.body;
+
+  if (!voucher_code) {
+    return res.status(400).json({ error: 'Código do voucher é obrigatório' });
+  }
+
+  // Verifica se o voucher existe e não está excluído
+  const query = 'SELECT * FROM vouchers WHERE voucher_code = ? AND is_deleted = FALSE';
+  db.execute(query, [voucher_code], (err, results) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao verificar o voucher', details: err });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Voucher inválido ou não encontrado' });
+    }
+
+    // Se o voucher for encontrado, registra o IP do cliente
+    const voucher = results[0];
+    const ip = req.ip; // O IP do cliente
+
+    // Salvar o IP no banco de dados
+    const insertIpQuery = 'INSERT INTO voucher_authentication_logs (voucher_id, ip_address, authenticated_at) VALUES (?, ?, ?)';
+    const authenticated_at = new Date();
+    db.execute(insertIpQuery, [voucher.id, ip, authenticated_at], (err, insertResults) => {
+      if (err) {
+        return res.status(500).json({ error: 'Erro ao registrar o IP', details: err });
+      }
+
+      // Retorna sucesso para o frontend
+      res.status(200).json({
+        message: 'Voucher autenticado com sucesso! IP registrado.',
+      });
+    });
+  });
+});
+
+// Rota para servir o arquivo 'auth-voucher.html'
+app.get('/auth-voucher', (req, res) => {
+  res.sendFile(path.join(__dirname, 'auth-voucher.html')); // Serve o arquivo auth-voucher.html
+});
+
+// Rota para servir o arquivo 'index.html'
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html')); // Serve o arquivo index.html da pasta raiz
 });
