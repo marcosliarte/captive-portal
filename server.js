@@ -156,8 +156,12 @@ app.post('/auth-voucher', (req, res) => {
     return res.status(400).json({ error: 'Código do voucher é obrigatório' });
   }
 
-  // Verifica se o voucher existe e não está excluído
-  const query = 'SELECT id, voucher_code, validity_duration FROM vouchers WHERE voucher_code = ? AND is_deleted = FALSE';
+  // Verifica se o voucher existe, não está excluído e se o contador de usos é 0
+  const query = `
+    SELECT id, voucher_code, validity_duration, used_count 
+    FROM vouchers 
+    WHERE voucher_code = ? AND is_deleted = FALSE
+  `;
   db.execute(query, [voucher_code], (err, results) => {
     if (err) {
       return res.status(500).json({ error: 'Erro ao verificar o voucher', details: err });
@@ -167,25 +171,39 @@ app.post('/auth-voucher', (req, res) => {
       return res.status(404).json({ error: 'Voucher inválido ou não encontrado' });
     }
 
-    // Se o voucher for encontrado, registra o IP do cliente e outros dados
     const voucher = results[0];
+
+    // Verifica se o voucher já foi usado (used_count > 0)
+    if (voucher.used_count > 0) {
+      return res.status(400).json({ error: 'Este voucher já foi utilizado' });
+    }
+
+    // Se o voucher for válido e não tiver sido usado, registra o IP do cliente e outros dados
     const ip = req.ip; // O IP do cliente
     const authenticated_at = new Date();
 
-    // Salvar o IP, código do voucher e validade na tabela voucher_authentication_logs
-    const insertIpQuery = `
-      INSERT INTO voucher_authentication_logs (voucher_id, voucher_code, validity_duration, ip_address, authenticated_at)
-      VALUES (?, ?, ?, ?, ?)
-    `;
-
-    db.execute(insertIpQuery, [voucher.id, voucher.voucher_code, voucher.validity_duration, ip, authenticated_at], (err, insertResults) => {
+    // Incrementa o contador de uso do voucher
+    const updateVoucherQuery = 'UPDATE vouchers SET used_count = used_count + 1 WHERE id = ?';
+    db.execute(updateVoucherQuery, [voucher.id], (err) => {
       if (err) {
-        return res.status(500).json({ error: 'Erro ao registrar o IP e dados do voucher', details: err });
+        return res.status(500).json({ error: 'Erro ao marcar o voucher como usado', details: err });
       }
 
-      // Retorna sucesso para o frontend
-      res.status(200).json({
-        message: 'Voucher autenticado com sucesso! IP registrado.',
+      // Salvar o IP, código do voucher e validade na tabela voucher_authentication_logs
+      const insertIpQuery = `
+        INSERT INTO voucher_authentication_logs (voucher_id, voucher_code, validity_duration, ip_address, authenticated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+
+      db.execute(insertIpQuery, [voucher.id, voucher.voucher_code, voucher.validity_duration, ip, authenticated_at], (err) => {
+        if (err) {
+          return res.status(500).json({ error: 'Erro ao registrar o IP e dados do voucher', details: err });
+        }
+
+        // Retorna sucesso para o frontend
+        res.status(200).json({
+          message: 'Voucher autenticado com sucesso! IP registrado.',
+        });
       });
     });
   });
@@ -201,7 +219,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html')); // Serve o arquivo index.html da pasta raiz
 });
 
-// Iniciar o servidor
+// Inicia o servidor na porta 3000
 app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
+  console.log(`Servidor iniciado na porta ${port}`);
 });
