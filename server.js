@@ -148,7 +148,7 @@ app.delete('/vouchers/:id', (req, res) => {
   });
 });
 
-// Rota para autenticar o voucher e registrar o IP do usuário
+// Rota para autenticar o voucher e registrar o IP do usuário, código do voucher e validade
 app.post('/auth-voucher', (req, res) => {
   const { voucher_code } = req.body;
 
@@ -157,7 +157,7 @@ app.post('/auth-voucher', (req, res) => {
   }
 
   // Verifica se o voucher existe e não está excluído
-  const query = 'SELECT * FROM vouchers WHERE voucher_code = ? AND is_deleted = FALSE';
+  const query = 'SELECT id, voucher_code, validity_duration FROM vouchers WHERE voucher_code = ? AND is_deleted = FALSE';
   db.execute(query, [voucher_code], (err, results) => {
     if (err) {
       return res.status(500).json({ error: 'Erro ao verificar o voucher', details: err });
@@ -167,16 +167,20 @@ app.post('/auth-voucher', (req, res) => {
       return res.status(404).json({ error: 'Voucher inválido ou não encontrado' });
     }
 
-    // Se o voucher for encontrado, registra o IP do cliente
+    // Se o voucher for encontrado, registra o IP do cliente e outros dados
     const voucher = results[0];
     const ip = req.ip; // O IP do cliente
-
-    // Salvar o IP no banco de dados
-    const insertIpQuery = 'INSERT INTO voucher_authentication_logs (voucher_id, ip_address, authenticated_at) VALUES (?, ?, ?)';
     const authenticated_at = new Date();
-    db.execute(insertIpQuery, [voucher.id, ip, authenticated_at], (err, insertResults) => {
+
+    // Salvar o IP, código do voucher e validade na tabela voucher_authentication_logs
+    const insertIpQuery = `
+      INSERT INTO voucher_authentication_logs (voucher_id, voucher_code, validity_duration, ip_address, authenticated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+
+    db.execute(insertIpQuery, [voucher.id, voucher.voucher_code, voucher.validity_duration, ip, authenticated_at], (err, insertResults) => {
       if (err) {
-        return res.status(500).json({ error: 'Erro ao registrar o IP', details: err });
+        return res.status(500).json({ error: 'Erro ao registrar o IP e dados do voucher', details: err });
       }
 
       // Retorna sucesso para o frontend
