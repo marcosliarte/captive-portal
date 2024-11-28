@@ -1,5 +1,6 @@
 const express = require('express');
 const mysql = require('mysql2');
+const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const path = require('path');
 const moment = require('moment');  // Importando o moment.js
@@ -32,6 +33,7 @@ const generateVoucherCode = () => {
 
 // Middleware para processar JSON no corpo da requisição
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));  // Para servir arquivos estáticos como CSS e JS
 
 // Rota para gerar voucher
 app.post('/generate-voucher', (req, res) => {
@@ -43,7 +45,7 @@ app.post('/generate-voucher', (req, res) => {
   }
 
   const voucher_code = generateVoucherCode();
-  const created_at = new Date();
+  const created_at = moment().format('YYYY-MM-DD HH:mm:ss');
   const updated_at = created_at;
 
   const query = `
@@ -53,11 +55,11 @@ app.post('/generate-voucher', (req, res) => {
 
   db.execute(query, [voucher_code, validity_duration, created_at, updated_at, 0, false], (err, results) => {
     if (err) {
-      console.error('Erro ao executar a consulta:', err);  // Log de erro
+      console.error('Erro ao executar a consulta:', err);
       return res.status(500).json({ error: 'Erro ao gerar o voucher', details: err });
     }
 
-    console.log('Voucher gerado com sucesso:', voucher_code); // Log de sucesso
+    console.log('Voucher gerado com sucesso:', voucher_code);
 
     res.status(201).json({
       message: 'Voucher gerado com sucesso!',
@@ -73,20 +75,19 @@ app.post('/generate-voucher', (req, res) => {
 
 // Rota para listar todos os vouchers (somente os não excluídos)
 app.get('/vouchers', (req, res) => {
-  const query = 'SELECT * FROM vouchers WHERE is_deleted = FALSE'; // Filtrando vouchers não excluídos
+  const query = 'SELECT * FROM vouchers WHERE is_deleted = FALSE';
   db.execute(query, (err, results) => {
     if (err) {
+      console.error('Erro ao listar vouchers:', err);
       return res.status(500).send('Erro ao listar vouchers');
     }
 
-    // Formatar as datas antes de enviar para o cliente
     const formattedResults = results.map(voucher => ({
       ...voucher,
       created_at: moment(voucher.created_at).format('DD/MM/YYYY HH:mm:ss'),
       updated_at: moment(voucher.updated_at).format('DD/MM/YYYY HH:mm:ss'),
     }));
 
-    // Construir o HTML diretamente
     let htmlContent = '<h1>Vouchers</h1>';
     htmlContent += '<table>';
     htmlContent += '<thead><tr><th>Voucher Code</th><th>Validity Duration</th><th>Created At</th><th>Updated At</th></tr></thead>';
@@ -106,7 +107,6 @@ app.get('/vouchers', (req, res) => {
     htmlContent += '</tbody>';
     htmlContent += '</table>';
 
-    // Enviar o HTML gerado como resposta
     res.send(htmlContent);
   });
 });
@@ -120,9 +120,10 @@ app.put('/vouchers/:id', (req, res) => {
     return res.status(400).json({ error: 'A validade do voucher deve ser maior que zero.' });
   }
 
-  const query = 'UPDATE vouchers SET validity_duration = ? WHERE id = ? AND is_deleted = FALSE';  // Só atualiza se não for excluído
+  const query = 'UPDATE vouchers SET validity_duration = ? WHERE id = ? AND is_deleted = FALSE';
   db.execute(query, [validity_duration, id], (err, results) => {
     if (err) {
+      console.error('Erro ao atualizar o voucher:', err);
       return res.status(500).json({ error: 'Erro ao atualizar o voucher', details: err });
     }
     if (results.affectedRows === 0) {
@@ -139,6 +140,7 @@ app.delete('/vouchers/:id', (req, res) => {
 
   db.execute(query, [id], (err, results) => {
     if (err) {
+      console.error('Erro ao excluir o voucher:', err);
       return res.status(500).json({ error: 'Erro ao excluir o voucher', details: err });
     }
     if (results.affectedRows === 0) {
@@ -156,7 +158,6 @@ app.post('/auth-voucher', (req, res) => {
     return res.status(400).json({ error: 'Código do voucher é obrigatório' });
   }
 
-  // Verifica se o voucher existe, não está excluído e se o contador de usos é 0
   const query = `
     SELECT id, voucher_code, validity_duration, used_count 
     FROM vouchers 
@@ -164,6 +165,7 @@ app.post('/auth-voucher', (req, res) => {
   `;
   db.execute(query, [voucher_code], (err, results) => {
     if (err) {
+      console.error('Erro ao verificar o voucher:', err);
       return res.status(500).json({ error: 'Erro ao verificar o voucher', details: err });
     }
 
@@ -173,23 +175,20 @@ app.post('/auth-voucher', (req, res) => {
 
     const voucher = results[0];
 
-    // Verifica se o voucher já foi usado (used_count > 0)
     if (voucher.used_count > 0) {
       return res.status(400).json({ error: 'Este voucher já foi utilizado' });
     }
 
-    // Se o voucher for válido e não tiver sido usado, registra o IP do cliente e outros dados
     const ip = req.ip; // O IP do cliente
-    const authenticated_at = new Date();
+    const authenticated_at = moment().format('YYYY-MM-DD HH:mm:ss');
 
-    // Incrementa o contador de uso do voucher
     const updateVoucherQuery = 'UPDATE vouchers SET used_count = used_count + 1 WHERE id = ?';
     db.execute(updateVoucherQuery, [voucher.id], (err) => {
       if (err) {
+        console.error('Erro ao marcar o voucher como usado:', err);
         return res.status(500).json({ error: 'Erro ao marcar o voucher como usado', details: err });
       }
 
-      // Salvar o IP, código do voucher e validade na tabela voucher_authentication_logs
       const insertIpQuery = `
         INSERT INTO voucher_authentication_logs (voucher_id, voucher_code, validity_duration, ip_address, authenticated_at)
         VALUES (?, ?, ?, ?, ?)
@@ -197,10 +196,10 @@ app.post('/auth-voucher', (req, res) => {
 
       db.execute(insertIpQuery, [voucher.id, voucher.voucher_code, voucher.validity_duration, ip, authenticated_at], (err) => {
         if (err) {
+          console.error('Erro ao registrar o IP e dados do voucher:', err);
           return res.status(500).json({ error: 'Erro ao registrar o IP e dados do voucher', details: err });
         }
 
-        // Retorna sucesso para o frontend
         res.status(200).json({
           message: 'Voucher autenticado com sucesso! IP registrado.',
         });
@@ -214,12 +213,54 @@ app.get('/auth-voucher', (req, res) => {
   res.sendFile(path.join(__dirname, 'auth-voucher.html')); // Serve o arquivo auth-voucher.html
 });
 
-// Rota para servir o arquivo 'index.html'
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html')); // Serve o arquivo index.html da pasta raiz
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Nome de usuário e senha são obrigatórios.' });
+  }
+
+  const query = 'SELECT * FROM usuarios WHERE username = ?';
+  db.execute(query, [username], (err, results) => {
+    if (err) {
+      console.error('Erro ao buscar usuário:', err);
+      return res.status(500).json({ error: 'Erro ao autenticar o usuário', details: err });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    const user = results[0];
+
+    // Verificar se o campo password_hash existe
+    if (!user.password_hash) {
+      console.error('Senha do usuário não encontrada no banco de dados.');
+      return res.status(500).json({ error: 'Senha não encontrada para este usuário.' });
+    }
+
+    console.log('Usuário encontrado:', user);  // Exibindo o usuário para verificar os dados
+
+    bcrypt.compare(password, user.password_hash, (err, isMatch) => {
+      if (err) {
+        console.error('Erro ao comparar as senhas:', err);
+        return res.status(500).json({ error: 'Erro ao autenticar o usuário', details: err });
+      }
+
+      if (!isMatch) {
+        return res.status(400).json({ error: 'Senha incorreta' });
+      }
+
+      res.status(200).json({
+        message: 'Login realizado com sucesso!',
+        user: { username: user.username, role: user.role },
+      });
+    });
+  });
 });
 
-// Inicia o servidor na porta 3000
+
+// Iniciar o servidor
 app.listen(port, () => {
-  console.log(`Servidor iniciado na porta ${port}`);
+  console.log(`Servidor rodando na porta ${port}`);
 });
