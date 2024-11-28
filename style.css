@@ -1,0 +1,37 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f4f4f9;
+}
+
+h1 {
+    text-align: center;
+}
+
+form {
+    margin: 20px 0;
+    text-align: center;
+}
+
+input {
+    padding: 10px;
+    margin-right: 10px;
+}
+
+button {
+    padding: 10px 20px;
+    cursor: pointer;
+}
+
+#voucherResult {
+    margin-top: 20px;
+    padding: 20px;
+    background-color: #e7f7e7;
+    border: 1px solid #b4d7b4;
+    display: none;
+}
+
+.hidden {
+    display: none;
+}
